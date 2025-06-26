@@ -61,7 +61,7 @@ class CommandFollower(object):
         self._max_x_vel = 0.5
         self._max_y_vel = 0.5
         self._max_ang_vel = 1.0
-        self._roation_duration = 3
+        self._rotation_duration = 5
 
         # self._avoid_obstacles = options.avoid_obstacles  # Disable obstacle avoidance.
         self._avoid_obstacles = True
@@ -105,6 +105,9 @@ class CommandFollower(object):
         mat = np.array([xhat, yhat, zhat]).transpose()
         return Quat.from_matrix(mat)
     
+    def is_command_done(feedback_response):
+        return feedback_response.is_running()
+    
     def do_stop(self):
         stop_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=0.0)
         self._robot_command_client.robot_command(lease=None, command=stop_cmd)
@@ -120,6 +123,10 @@ class CommandFollower(object):
         return
     
     def rotate(self, angle: float, direction: int):
+        if direction != 1 or direction != -1:
+            print("Invalid direction parameter. Rotation failed")
+            return
+        
         frame_snapshot = self.robot_state.kinematic_state.transforms_snapshot
         v_x, v_y, v_rot = 0.0, 0.0, -angle/self._rotation_duration if direction < 0 else angle/self._rotation_duration
 
@@ -130,10 +137,12 @@ class CommandFollower(object):
         blocking_command(
             self._robot_command_client, 
             rotation_cmd, 
-            end_time_secs=time.time() + self._roation_duration,
-            timeout_sec=self._roation_duration + 1.0,
+            check_status_fn=lambda status: True,
+            end_time_secs=time.time() + self._rotation_duration,
+            timeout_sec=self._rotation_duration + 1.0,
             update_frequency=10.0
         )
+        time.sleep(self._rotation_duration)
 
     def power_on(self):
         """Power on the robot."""
@@ -183,7 +192,7 @@ def callback(indata, frames, time, status):
     q.put(bytes(indata))
 
 def degrees_to_radians(angle: int) -> float:
-    return angle/180.0 * math.PI
+    return angle/180.0 * math.pi
 
 
 # method for reading the sound data from microphone and converting it into a string
@@ -304,15 +313,21 @@ def main():
             code = parse_text_into_command(text, lang)
             if verify_command(code):
                 match code:
-                    case 0:
+                    case 0: # stop
                         print(f"Executing {command_list[code].lower()} command")
                         command_follower.do_stop()
-                    case 1:
+                    case 1: # sit
                         print(f"Executing {command_list[code].lower()} command")
                         command_follower.do_sit()
-                    case 2:
+                    case 2: # stand
                         print(f"Executing {command_list[code].lower()} command")
                         command_follower.do_stand()
+                    case 3: # rotate clockwise
+                        print(f"Executing {command_list[code].lower()} command")
+                        command_follower.rotate(degrees_to_radians(90), 1)
+                    case 4: # rotate counterclockwise
+                        print(f"Executing {command_list[code].lower()} command")
+                        command_follower.rotate(degrees_to_radians(90), -1)
             else:
                 print("Command not approved")
             iterations += 1
