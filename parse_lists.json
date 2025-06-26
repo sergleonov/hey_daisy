@@ -1,0 +1,19 @@
+{
+
+    "en-us":{
+        "sit": ["sit", "sits" , "sitting"],
+        "stand": ["stand", "stands"],
+        "stop": ["stop", "stops"],
+        "rotate clockwise": [],
+        "rotate counterclockwise": []
+    },
+
+    "ru":{
+        "sit": ["сидеть", "сядь", "присядь", "сели", "сесть"],
+        "stand": ["встать", "встань", "встали", "стоять"],
+        "stop": ["стой", "остановись", "стоп"],
+        "rotate clockwise": [],
+        "rotate counterclockwise": []
+    }
+
+}
