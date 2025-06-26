@@ -15,6 +15,7 @@ from sys import platform
 
 
 import cv2
+import math
 import numpy as np
 from PIL import Image
 
@@ -31,7 +32,7 @@ from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.lease import LeaseClient
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.power import PowerClient
-from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, blocking_sit
+from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, blocking_sit, blocking_command
 from bosdyn.client.robot_id import RobotIdClient, version_tuple
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.world_object import WorldObjectClient
@@ -60,6 +61,7 @@ class CommandFollower(object):
         self._max_x_vel = 0.5
         self._max_y_vel = 0.5
         self._max_ang_vel = 1.0
+        self._roation_duration = 3
 
         # self._avoid_obstacles = options.avoid_obstacles  # Disable obstacle avoidance.
         self._avoid_obstacles = True
@@ -117,6 +119,21 @@ class CommandFollower(object):
         blocking_sit(self._robot_command_client, timeout_sec=5)
         return
     
+    def rotate(self, angle: float, direction: int):
+        frame_snapshot = self.robot_state.kinematic_state.transforms_snapshot
+        v_x, v_y, v_rot = 0.0, 0.0, -angle/self._rotation_duration if direction < 0 else angle/self._rotation_duration
+
+        rotation_cmd = RobotCommandBuilder.synchro_velocity_command(
+            v_x=v_x, v_y=v_y, v_rot=v_rot,
+            frame_name="body"
+        )
+        blocking_command(
+            self._robot_command_client, 
+            rotation_cmd, 
+            end_time_secs=time.time() + self._roation_duration,
+            timeout_sec=self._roation_duration + 1.0,
+            update_frequency=10.0
+        )
 
     def power_on(self):
         """Power on the robot."""
@@ -144,9 +161,11 @@ q = queue.Queue()
 command_list = ["Stop", "Sit", "Stand", "None"]
 
 commands_to_codes = {
-    "stop_cmd": 0,
-    "sit_cmd": 1,
-    "stand_cmd": 2,
+    "stop": 0,
+    "sit": 1,
+    "stand": 2,
+    "rotate clockwise": 3,
+    "rotate counterclockwise": 4,
     "none": -1
 }
 
@@ -162,6 +181,9 @@ def callback(indata, frames, time, status):
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
+
+def degrees_to_radians(angle: int) -> float:
+    return angle/180.0 * math.PI
 
 
 # method for reading the sound data from microphone and converting it into a string
@@ -199,27 +221,17 @@ def parse_text_into_command(text: str, lang: str) -> int:
     # Returns: Integer command code (0:stop, 1:sit, 2:stand, -1:none)
     # Purpose: Identifies command from text by checking against keywords from a JSON file
     # Uses sets for efficient keyword intersection checks
-
-    # set of words transcribed for quick access
-    words_heard = set(text.split())
     
     # load a json file containing the lists of keywords to look for per command
     f = open("parse_lists.json", "r")
     parse_list = json.loads(f.read())[lang]
     f.close()
-
-    # get the sets of keywords for quick intersection checks (indexed by codes)
-    command_sets = [
-        set(parse_list["stop"]),
-        set(parse_list["sit"]),
-        set(parse_list["stand"])
-    ]
-
-    # check whether any command is recognized, return its code
-    for i in range(len(command_sets)):
-        if not command_sets[i].isdisjoint(words_heard):
-            return i
-    return  commands_to_codes["none"]
+    # find the command code from text
+    for command, keywords in parse_list.items():
+        for keyword in keywords:
+            if keyword in text:
+                return commands_to_codes[command]
+    return commands_to_codes["none"]
 
 # function for verifying the command that was parsed
 def verify_command(code: int) -> bool:

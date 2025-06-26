@@ -1,17 +1,17 @@
 {
 
     "en-us":{
-        "sit": ["sit", "sits" , "sitting"],
-        "stand": ["stand", "stands"],
-        "stop": ["stop", "stops"],
+        "sit": ["sit", "sits" , "sitting", "sit down", "sits down"],
+        "stand": ["stand", "stands", "stand up", "stands up"],
+        "stop": ["stop", "stops", "stopping"],
         "rotate clockwise": [],
         "rotate counterclockwise": []
     },
 
     "ru":{
-        "sit": ["сидеть", "сядь", "присядь", "сели", "сесть"],
-        "stand": ["встать", "встань", "встали", "стоять"],
-        "stop": ["стой", "остановись", "стоп"],
+        "sit": ["сидеть", "сядь", "присядь", "сели", "сесть", "садись"],
+        "stand": ["встать", "встань", "встали", "стоять", "вставай"],
+        "stop": ["стой", "остановись", "стоп", "тормоза", "тормози"],
         "rotate clockwise": [],
         "rotate counterclockwise": []
     }
