@@ -4,16 +4,18 @@
         "sit": ["sit", "sits" , "sitting", "sit down", "sits down"],
         "stand": ["stand", "stands", "stand up", "stands up"],
         "stop": ["stop", "stops", "stopping"],
-        "rotate clockwise": [],
-        "rotate counterclockwise": []
+        "rotate clockwise": ["rotate right", "rotate clockwise", "rotate to the right", "rotate to your right"],
+        "rotate counterclockwise": ["rotate left", "rotate counterclockwise", "rotate to the left", "rotate to your left"],
+        "turn around": ["turn around"]
     },
 
     "ru":{
         "sit": ["сидеть", "сядь", "присядь", "сели", "сесть", "садись"],
         "stand": ["встать", "встань", "встали", "стоять", "вставай"],
         "stop": ["стой", "остановись", "стоп", "тормоза", "тормози"],
-        "rotate clockwise": [],
-        "rotate counterclockwise": []
+        "rotate clockwise": ["повернись вправо", "повернись направо", "повернуться вправо", "повернуться направо", "повернись по часовой", "повернуться по часовой", "повернитесь влево", "повернитесь налево"],
+        "rotate counterclockwise": ["повернись влево", "повернись налево", "повернуться влево", "повернуться налево", "повернись против часовой", "повернуться против часовой", "повернитесь влево", "повернитесь налево"],
+        "turn around": ["развернись", "развернуться", "развернитесь"]
     }
 
 }
