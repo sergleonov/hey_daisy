@@ -273,14 +273,18 @@ def main():
         "-m", "--model", type=str, help="language model; e.g. en-us (English), ru (Russian), es (Spanish); default is en-us")
     args = parser.parse_args(remaining)
 
-
-    if args.model is None:
+    
+    if args.model is None: # default to en-us model
         lang = "en-us"
-        model = Model(lang)
-
+        model = Model(f"models/{lang}")
     else:
-        model = Model(lang=args.model)
+        supported_models = ["en-us", "ru"]
+        if args.model not in supported_models:
+            print("Invalid model identifier")
+            sys.exit(1)
         lang = args.model
+        model = Model(f"models/{lang}")
+
 
     # Load a json file containing the lists of keywords to look for per command
     # Example json file:
@@ -317,6 +321,7 @@ def main():
     time.sleep(.1)  
     with bosdyn.client.lease.LeaseKeepAlive(lease_client, must_acquire=True, return_at_exit=True):
         command_follower.start()
+
         while iterations < max_iterations:
             text = get_text_from_audio(model, args.device)
             print(f"Daisy heard: \"{text}\"")
