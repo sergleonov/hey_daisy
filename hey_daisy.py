@@ -15,6 +15,7 @@ from sys import platform
 
 
 import cv2
+import math
 import numpy as np
 from PIL import Image
 
@@ -31,7 +32,7 @@ from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.lease import LeaseClient
 from bosdyn.client.math_helpers import Quat, SE3Pose
 from bosdyn.client.power import PowerClient
-from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, blocking_sit
+from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient, blocking_stand, blocking_sit, blocking_command
 from bosdyn.client.robot_id import RobotIdClient, version_tuple
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.world_object import WorldObjectClient
@@ -60,6 +61,7 @@ class CommandFollower(object):
         self._max_x_vel = 0.5
         self._max_y_vel = 0.5
         self._max_ang_vel = 1.0
+        self._rotation_duration = 5
 
         # self._avoid_obstacles = options.avoid_obstacles  # Disable obstacle avoidance.
         self._avoid_obstacles = True
@@ -107,16 +109,40 @@ class CommandFollower(object):
         stop_cmd = RobotCommandBuilder.synchro_velocity_command(v_x=0.0, v_y=0.0, v_rot=0.0)
         self._robot_command_client.robot_command(lease=None, command=stop_cmd)
         blocking_stand(self._robot_command_client)
+        time.sleep(0.5)
         return
     
     def do_stand(self):
         blocking_stand(self._robot_command_client, timeout_sec=5)
+        time.sleep(0.5)
         return
     
     def do_sit(self):
         blocking_sit(self._robot_command_client, timeout_sec=5)
+        time.sleep(0.5)
         return
     
+    def rotate(self, angle: float, direction: int):
+        if direction != 1 and direction != -1:
+            print("Invalid direction parameter. Rotation failed")
+            return
+        
+        frame_snapshot = self.robot_state.kinematic_state.transforms_snapshot
+        v_x, v_y, v_rot = 0.0, 0.0, -angle/self._rotation_duration if direction < 0 else angle/self._rotation_duration
+
+        rotation_cmd = RobotCommandBuilder.synchro_velocity_command(
+            v_x=v_x, v_y=v_y, v_rot=v_rot,
+            frame_name="body"
+        )
+        blocking_command(
+            self._robot_command_client, 
+            rotation_cmd, 
+            check_status_fn=lambda status: True,
+            end_time_secs=time.time() + self._rotation_duration,
+            timeout_sec=self._rotation_duration + 1.0,
+            update_frequency=10.0
+        )
+        time.sleep(self._rotation_duration)
 
     def power_on(self):
         """Power on the robot."""
@@ -138,17 +164,8 @@ class CommandFollower(object):
         time.sleep(0.35)
 
 
-
+# global queue for waveform input
 q = queue.Queue()   
-
-command_list = ["Stop", "Sit", "Stand", "None"]
-
-commands_to_codes = {
-    "stop_cmd": 0,
-    "sit_cmd": 1,
-    "stand_cmd": 2,
-    "none": -1
-}
 
 def int_or_str(text):
     """Helper function for argument parsing."""
@@ -162,6 +179,9 @@ def callback(indata, frames, time, status):
     if status:
         print(status, file=sys.stderr)
     q.put(bytes(indata))
+
+def degrees_to_radians(angle: int) -> float:
+    return angle/180.0 * math.pi
 
 
 # method for reading the sound data from microphone and converting it into a string
@@ -194,50 +214,37 @@ def get_text_from_audio(model, device) -> str:
             return "Timed out... No command given."  
 
 # function for parsing text that model returned into command code
-def parse_text_into_command(text: str, lang: str) -> int:
-    # Args: Transcribed text string, language code ("en-us", "ru")
+def parse_text_into_command(text: str, parse_list: dict) -> int:
+    # Args: Transcribed text string, dictionary of keywords for a given language
+    # Example parse_list: 
+    # {
+    #    "sit": ["sit"],
+    #     "stand": ["stand"]
+    # }
     # Returns: Integer command code (0:stop, 1:sit, 2:stand, -1:none)
     # Purpose: Identifies command from text by checking against keywords from a JSON file
     # Uses sets for efficient keyword intersection checks
-
-    # set of words transcribed for quick access
-    words_heard = set(text.split())
     
-    # load a json file containing the lists of keywords to look for per command
-    f = open("parse_lists.json", "r")
-    parse_list = json.loads(f.read())[lang]
-    f.close()
-
-    # get the sets of keywords for quick intersection checks (indexed by codes)
-    command_sets = [
-        set(parse_list["stop"]),
-        set(parse_list["sit"]),
-        set(parse_list["stand"])
-    ]
-
-    # check whether any command is recognized, return its code
-    for i in range(len(command_sets)):
-        if not command_sets[i].isdisjoint(words_heard):
-            return i
-    return  commands_to_codes["none"]
+    # find the command code from text
+    for command, keywords in parse_list.items():
+        for keyword in keywords:
+            if keyword in text:
+                return command
+    return "none"
 
 # function for verifying the command that was parsed
-def verify_command(code: int) -> bool:
+def verify_command(cmd: str, dispatch: dict) -> bool:
     # Args: Integer command code
     # Returns: Boolean (True: execution approved, False: not approved)
     # Purpose: Prompts user for approval of the parsed command, returns their decision
     # Loops until 'y' or 'n' is entered, defaults to False on empty input
 
-    if code < 0 or code >= len(command_list) - 1:
-        print("Invalid command code...")
+    if cmd.lower() not in [*dispatch]:
+        print("Command was not recognized or was invalid...")
         return False
-
-    if code == commands_to_codes["none"]:
-        print("Command was not recognized...")
-        return False
-
+    
     user_input = "empty"
-    print(f"Received instruction to {command_list[code].lower()}. Do you approve execution? (y/[N])")
+    print(f"Received instruction to {cmd.lower()}. Do you approve execution? (y/[N])")
 
     while user_input != "y" and user_input != "n":
         user_input = input().strip().lower()
@@ -275,12 +282,36 @@ def main():
         model = Model(lang=args.model)
         lang = args.model
 
+    # Load a json file containing the lists of keywords to look for per command
+    # Example json file:
+    # {
+    #     "en-us":{
+    #         "sit": ["sit"]
+    #         "stand": ["stand"]
+    #     }
+    # }
+
+    f = open("parse_lists.json", "r")
+    keyword_list = json.loads(f.read())
+    f.close()
+
     # initialize Daisy
     sdk = bosdyn.client.create_standard_sdk("voice_listener")
     robot = sdk.create_robot("192.168.80.3")
     bosdyn.client.util.authenticate(robot)
     lease_client = robot.ensure_client(bosdyn.client.lease.LeaseClient.default_service_name)
     command_follower = CommandFollower(robot)
+
+    # map commands to method calls
+    dispatch = {
+        "stop": command_follower.do_stop,
+        "sit": command_follower.do_sit,
+        "stand": command_follower.do_stand,
+        "rotate clockwise": lambda: command_follower.rotate(degrees_to_radians(90), 1),
+        "rotate counterclockwise": lambda: command_follower.rotate(degrees_to_radians(90), -1),
+        "turn around": lambda: command_follower.rotate(degrees_to_radians(180), 1)
+    }
+
     iterations = 0
     max_iterations = 50
     time.sleep(.1)  
@@ -289,18 +320,10 @@ def main():
         while iterations < max_iterations:
             text = get_text_from_audio(model, args.device)
             print(f"Daisy heard: \"{text}\"")
-            code = parse_text_into_command(text, lang)
-            if verify_command(code):
-                match code:
-                    case 0:
-                        print(f"Executing {command_list[code].lower()} command")
-                        command_follower.do_stop()
-                    case 1:
-                        print(f"Executing {command_list[code].lower()} command")
-                        command_follower.do_sit()
-                    case 2:
-                        print(f"Executing {command_list[code].lower()} command")
-                        command_follower.do_stand()
+            cmd = parse_text_into_command(text, keyword_list[lang])
+            if verify_command(cmd, dispatch):
+                print(f"Executing {cmd.lower()} command...")
+                dispatch[cmd]()
             else:
                 print("Command not approved")
             iterations += 1
